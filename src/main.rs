@@ -1,8 +1,14 @@
+mod db;
+mod in_memory_db;
+
 use std::io::Write;
 
 use clap::{Parser, Subcommand};
+use db::{Database, DbRecord};
+use in_memory_db::InMemoryDb;
 
 fn main() -> Result<(), String> {
+    let mut db = InMemoryDb::new().with_engine("hashmap");
     loop {
         let line = readline()?;
         let line = line.trim();
@@ -10,7 +16,7 @@ fn main() -> Result<(), String> {
             continue;
         }
 
-        match respond(line) {
+        match respond(&mut db, line) {
             Ok(quit) => {
                 if quit {
                     break;
@@ -26,25 +32,29 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn respond(line: &str) -> Result<bool, String> {
+fn respond(db: &mut InMemoryDb, line: &str) -> Result<bool, String> {
     let args = shlex::split(line).ok_or("error: Invalid quoting")?;
     let cli = Cli::try_parse_from(args).map_err(|e| e.to_string())?;
     match cli.command {
         Commands::Version => {
-            show_version();
+            db.version();
             std::io::stdout().flush().map_err(|e| e.to_string())?;
-        },
+        }
         Commands::Exit => {
             write!(std::io::stdout(), "Exiting ...").map_err(|e| e.to_string())?;
             std::io::stdout().flush().map_err(|e| e.to_string())?;
             return Ok(true);
         }
-        Commands::Get { key } => {
-            get_record(key);
+        Commands::Get { key } => {            
+            show_record(db.get(key));
+            std::io::stdout().flush().map_err(|e| e.to_string())?;
+        }
+        Commands::Del { key } => {           
+            show_record(db.del(key));
             std::io::stdout().flush().map_err(|e| e.to_string())?;
         }
         Commands::Set { key, value } => {
-            set_record(key, value);
+            show_record(db.put(key, value));
             std::io::stdout().flush().map_err(|e| e.to_string())?;
         }
     }
@@ -62,8 +72,9 @@ struct Cli {
 enum Commands {
     Exit,
     Get { key: String },
+    Del { key: String },
     Set { key: String, value: String },
-    Version
+    Version,
 }
 
 fn readline() -> Result<String, String> {
@@ -76,17 +87,13 @@ fn readline() -> Result<String, String> {
     Ok(buffer)
 }
 
-fn set_record(key: String, value: String) {
-    println!(
-        "Record with key {} and value{} is written to database",
-        key, value
-    );
-}
-
-fn get_record(key: String) {
-    println!("Record with key {} is fetch from database", key);
-}
-
-fn show_version() {
-    println!("Lamport DB version 0.1.0")
+fn show_record(result: Option<DbRecord>) {
+    match result {
+        Some(v) => {
+            println!("Key: {} and Value : {}", v.key, v.value);
+        }
+        None => {
+            println!("Operation failed. Please try again.");
+        }
+    }
 }
